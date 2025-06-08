@@ -215,10 +215,12 @@ Deno.serve(async (req: Request) => {
       const safeFilename = generateSafeFilename(file.name);
       const fileName = `${roomId}/${safeFilename}`;
       
-      // Pass the File object directly to the upload method
+      // Convert File to ArrayBuffer for Deno compatibility
+      const fileBuffer = await file.arrayBuffer();
+      
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('shared-files')
-        .upload(fileName, file, {
+        .upload(fileName, fileBuffer, {
           contentType: file.type,
           upsert: false
         });
@@ -245,7 +247,6 @@ Deno.serve(async (req: Request) => {
 
       // Generate thumbnail for images
       if (file.type.startsWith('image/')) {
-        const fileBuffer = await file.arrayBuffer();
         thumbnailUrl = await generateThumbnail(new Uint8Array(fileBuffer), file.type);
       }
     }
