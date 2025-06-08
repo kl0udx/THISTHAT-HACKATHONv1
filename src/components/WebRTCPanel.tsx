@@ -59,11 +59,8 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
   const signalingManagerRef = useRef<WebRTCSignalingManager | null>(null);
   const recordingStartTime = useRef<number>(0);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const streamEndedHandlerRef = useRef<(() => void) | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 3;
   const isUserStoppedRef = useRef(false);
+  const streamSetupCompleteRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -221,13 +218,8 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
         localStreamRef.current.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
       }
-      // Clear reconnect timeout
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
       setCurrentScreenShareSessionId(null);
       setIsScreenSharing(false);
-      setIsMicMuted(false);
       setActiveScreenShares(new Map());
       setMostRecentScreenShare(null);
       setConnectionStatus('idle');
@@ -256,100 +248,40 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
   const mostRecentSession = mostRecentScreenShare ? activeScreenShares.get(mostRecentScreenShare) : null;
 
   const setupStreamEndedHandler = (stream: MediaStream) => {
+    console.log('🖥️ Setting up stream ended handler');
+    
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack) {
       const handleEnded = () => {
-        console.log('🖥️ Video track ended - checking if user manually stopped');
+        console.log('🖥️ Video track ended event fired');
+        console.log('🖥️ Current state:', {
+          isUserStopped: isUserStoppedRef.current,
+          isScreenSharing,
+          streamSetupComplete: streamSetupCompleteRef.current
+        });
         
-        // Only attempt reconnection if user didn't manually stop sharing
-        if (!isUserStoppedRef.current && isScreenSharing && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current++;
-          console.log(`🖥️ Attempting reconnection ${reconnectAttemptsRef.current}/${maxReconnectAttempts}`);
-          
-          setConnectionStatus('reconnecting');
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            handleReconnectScreenShare();
-          }, 2000 * reconnectAttemptsRef.current); // Exponential backoff
-        } else if (isUserStoppedRef.current) {
-          console.log('🖥️ User manually stopped sharing, not reconnecting');
-        } else {
-          console.log('🖥️ Max reconnection attempts reached');
-          setConnectionStatus('failed');
+        // CRITICAL FIX: Only handle track ended if setup is complete and user didn't manually stop
+        if (streamSetupCompleteRef.current && !isUserStoppedRef.current) {
+          console.log('🖥️ Track ended unexpectedly - user likely stopped sharing via browser');
+          // This is a legitimate user action (clicked "Stop sharing" in browser dialog)
           handleStopScreenShare();
+        } else if (!streamSetupCompleteRef.current) {
+          console.log('🖥️ Track ended during setup - ignoring (setup not complete)');
+        } else {
+          console.log('🖥️ Track ended after manual stop - ignoring');
         }
       };
 
+      // Add the event listener
       videoTrack.addEventListener('ended', handleEnded);
-      streamEndedHandlerRef.current = () => {
+      
+      // Store cleanup function
+      return () => {
         videoTrack.removeEventListener('ended', handleEnded);
       };
     }
-  };
-
-  const handleReconnectScreenShare = async () => {
-    try {
-      console.log('🖥️ Attempting to reconnect screen share...');
-      setScreenShareError('');
-      setConnectionStatus('connecting');
-      
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 30, max: 60 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100
-        }
-      });
-
-      // Replace the stream
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      
-      localStreamRef.current = stream;
-      
-      // Update video element
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        await localVideoRef.current.play();
-      }
-
-      // Update signaling
-      if (signalingManagerRef.current) {
-        signalingManagerRef.current.setLocalStream(stream);
-      }
-
-      // Set up new ended handler
-      setupStreamEndedHandler(stream);
-      
-      // Reset reconnect attempts on successful reconnection
-      reconnectAttemptsRef.current = 0;
-      setConnectionStatus('connected');
-      
-      console.log('✅ Screen share reconnected successfully');
-    } catch (error) {
-      console.error('❌ Screen share reconnection failed:', error);
-      setConnectionStatus('failed');
-      
-      // If user denied permission during reconnection, stop sharing
-      if (error instanceof Error && error.name === 'NotAllowedError') {
-        handleStopScreenShare();
-      } else {
-        // Try again if we haven't reached max attempts
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          setTimeout(() => {
-            handleReconnectScreenShare();
-          }, 5000);
-        } else {
-          handleStopScreenShare();
-        }
-      }
-    }
+    
+    return null;
   };
 
   const toggleMicrophone = () => {
@@ -380,8 +312,8 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
       setConnectionStatus('connecting');
       setScreenShareError('');
       setShowPermissionHelp(false);
-      reconnectAttemptsRef.current = 0;
       isUserStoppedRef.current = false; // Reset user stop flag
+      streamSetupCompleteRef.current = false; // Reset setup flag
       
       console.log('🖥️ Starting screen share...');
       
@@ -405,10 +337,10 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
         id: stream.id
       });
 
-      // Store the stream reference
+      // Store the stream reference FIRST
       localStreamRef.current = stream;
       
-      // Set up video element
+      // Set up video element BEFORE setting up ended handlers
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         try {
@@ -419,16 +351,13 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
         }
       }
 
-      // Set up signaling
+      // Set up signaling BEFORE setting up ended handlers
       if (signalingManagerRef.current) {
         signalingManagerRef.current.setLocalStream(stream);
       }
 
       // Play sound notification
       AudioNotificationService.playFirstTimeScreenShareSound();
-
-      // Set up persistent stream management - CRITICAL FIX
-      setupStreamEndedHandler(stream);
 
       // Register with backend
       try {
@@ -447,9 +376,16 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
         console.warn('Backend registration failed, continuing with local stream:', backendError);
       }
 
+      // Set state BEFORE setting up ended handlers
       setIsScreenSharing(true);
       setIsMicMuted(stream.getAudioTracks().length === 0); // Muted if no audio track
       setConnectionStatus('connected');
+
+      // CRITICAL: Mark setup as complete BEFORE setting up ended handlers
+      streamSetupCompleteRef.current = true;
+
+      // Set up stream ended handler LAST - after everything is ready
+      const cleanupHandler = setupStreamEndedHandler(stream);
 
       console.log('✅ Screen sharing started successfully');
 
@@ -497,18 +433,7 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
       
       // Set user stopped flag to prevent reconnection attempts
       isUserStoppedRef.current = true;
-      
-      // Clear reconnect timeout
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      
-      // Remove stream ended handler
-      if (streamEndedHandlerRef.current) {
-        streamEndedHandlerRef.current();
-        streamEndedHandlerRef.current = null;
-      }
+      streamSetupCompleteRef.current = false;
       
       // Play stop sound notification
       AudioNotificationService.playScreenShareStopSound();
@@ -552,7 +477,6 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
       setScreenShareError('');
       setShowPermissionHelp(false);
       setIsStartingScreenShare(false);
-      reconnectAttemptsRef.current = 0;
       setConnectionStatus('idle');
       isUserStoppedRef.current = false;
     }
@@ -671,7 +595,7 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
     switch (connectionStatus) {
       case 'connected': return 'Connected';
       case 'connecting': return 'Connecting...';
-      case 'reconnecting': return `Reconnecting... (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`;
+      case 'reconnecting': return 'Reconnecting...';
       case 'failed': return 'Connection Failed';
       default: return 'Ready';
     }
@@ -738,11 +662,6 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
               </span>
             </div>
           </div>
-          {connectionStatus === 'reconnecting' && (
-            <div className="mt-2 text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded">
-              Attempting to restore connection...
-            </div>
-          )}
         </div>
       )}
 
@@ -896,11 +815,6 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
             <span>Status: {connectionStatus === 'connected' ? '🟢 Active' : connectionStatus === 'reconnecting' ? '🟡 Reconnecting' : '🔴 Stopped'}</span>
             <span>Audio: {isMicMuted ? '🔇 Muted' : '🔊 Active'}</span>
           </div>
-          {reconnectAttemptsRef.current > 0 && connectionStatus === 'connected' && (
-            <div className="mt-1 text-xs text-green-600">
-              ↻ Reconnected successfully
-            </div>
-          )}
         </div>
       )}
 
@@ -973,12 +887,12 @@ export default function WebRTCPanel({ roomId, userId, isOpen, onToggle }: WebRTC
       {/* Enhanced Instructions */}
       <div className="p-4 bg-gray-50 rounded-b-xl border-t">
         <div className="text-xs text-gray-600">
-          <p className="font-medium mb-1">🖥️ Enhanced Screen Sharing:</p>
+          <p className="font-medium mb-1">🖥️ Fixed Screen Sharing:</p>
           <ul className="space-y-1">
-            <li>• <strong>Persistent connection</strong> - auto-reconnects if stream drops</li>
+            <li>• <strong>No more immediate disconnects</strong> - proper track handling</li>
             <li>• <strong>Microphone control</strong> - toggle with button or Ctrl/Cmd+M</li>
             <li>• High-quality video (1080p@30fps) with audio</li>
-            <li>• Smart error handling and recovery</li>
+            <li>• Continues until you manually click "Stop Share"</li>
             <li>• Recording requires permission from all participants</li>
           </ul>
         </div>
