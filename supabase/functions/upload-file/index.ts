@@ -116,6 +116,7 @@ async function ensureBucketExists(supabase: any): Promise<void> {
         'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
         'application/x-tar', 'application/gzip',
         'video/mp4', 'video/webm', 'video/avi', 'video/quicktime',
+        'video/x-ms-wmv', 'video/x-flv', 'video/x-matroska',
         'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/aac', 'audio/mp4',
         'application/javascript', 'text/javascript', 'application/typescript',
         'text/css', 'text/html', 'application/json', 'application/xml', 'text/xml'
