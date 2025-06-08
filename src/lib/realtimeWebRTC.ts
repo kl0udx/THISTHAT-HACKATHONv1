@@ -252,13 +252,15 @@ export function subscribeToWebRTCEvents(roomId: string, callbacks: {
   });
 }
 
-// Enhanced WebRTC Signaling Manager with comment positioning
+// Enhanced WebRTC Signaling Manager with improved stream management
 export class WebRTCSignalingManager {
   private roomId: string;
   private userId: string;
   private peerConnections = new Map<string, RTCPeerConnection>();
   private localStream: MediaStream | null = null;
   private onRemoteStream?: (stream: MediaStream, userId: string) => void;
+  private reconnectAttempts = new Map<string, number>();
+  private maxReconnectAttempts = 3;
 
   constructor(roomId: string, userId: string) {
     this.roomId = roomId;
@@ -276,11 +278,38 @@ export class WebRTCSignalingManager {
       videoTracks: stream.getVideoTracks().length,
       audioTracks: stream.getAudioTracks().length
     });
+
+    // Replace tracks in existing peer connections
+    this.peerConnections.forEach((pc, userId) => {
+      this.replaceTracksInConnection(pc, stream);
+    });
+  }
+
+  private replaceTracksInConnection(pc: RTCPeerConnection, newStream: MediaStream) {
+    const senders = pc.getSenders();
+    
+    // Replace video track
+    const videoTrack = newStream.getVideoTracks()[0];
+    const videoSender = senders.find(s => s.track?.kind === 'video');
+    if (videoSender && videoTrack) {
+      videoSender.replaceTrack(videoTrack).catch(console.error);
+    } else if (videoTrack) {
+      pc.addTrack(videoTrack, newStream);
+    }
+
+    // Replace audio track
+    const audioTrack = newStream.getAudioTracks()[0];
+    const audioSender = senders.find(s => s.track?.kind === 'audio');
+    if (audioSender && audioTrack) {
+      audioSender.replaceTrack(audioTrack).catch(console.error);
+    } else if (audioTrack) {
+      pc.addTrack(audioTrack, newStream);
+    }
   }
 
   async startScreenShare(): Promise<MediaStream> {
     try {
-      // Enhanced screen sharing options
+      // Enhanced screen sharing options with better error handling
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           mediaSource: 'screen',
@@ -297,11 +326,27 @@ export class WebRTCSignalingManager {
 
       this.localStream = stream;
       console.log('🖥️ Screen share started locally with enhanced options');
+      
+      // Set up track ended handlers for persistence
+      stream.getTracks().forEach(track => {
+        track.addEventListener('ended', () => {
+          console.log(`🖥️ Track ended: ${track.kind}`);
+          this.handleTrackEnded(track);
+        });
+      });
+
       return stream;
     } catch (error) {
       console.error('Failed to start screen share:', error);
       throw error;
     }
+  }
+
+  private handleTrackEnded(track: MediaStreamTrack) {
+    console.log('🖥️ Handling track ended, attempting to maintain connections');
+    
+    // Don't immediately close connections, allow for reconnection
+    // The WebRTC panel will handle stream replacement
   }
 
   stopScreenShare() {
@@ -316,6 +361,7 @@ export class WebRTCSignalingManager {
     // Close all peer connections
     this.peerConnections.forEach(pc => pc.close());
     this.peerConnections.clear();
+    this.reconnectAttempts.clear();
 
     console.log('🖥️ Screen share stopped locally');
   }
@@ -325,33 +371,13 @@ export class WebRTCSignalingManager {
       throw new Error('No local stream available');
     }
 
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    });
-
+    const pc = this.createPeerConnection(targetUserId);
     this.peerConnections.set(targetUserId, pc);
 
     // Add local stream
     this.localStream.getTracks().forEach(track => {
       pc.addTrack(track, this.localStream!);
     });
-
-    // Handle remote stream
-    pc.ontrack = (event) => {
-      console.log('📺 Remote stream received from:', targetUserId);
-      this.onRemoteStream?.(event.streams[0], targetUserId);
-    };
-
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        // Send ICE candidate via signaling server
-        this.sendSignal(targetUserId, 'ice-candidate', event.candidate);
-      }
-    };
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -361,27 +387,8 @@ export class WebRTCSignalingManager {
   }
 
   async handleOffer(fromUserId: string, offer: RTCSessionDescriptionInit): Promise<void> {
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    });
-
+    const pc = this.createPeerConnection(fromUserId);
     this.peerConnections.set(fromUserId, pc);
-
-    // Handle remote stream
-    pc.ontrack = (event) => {
-      console.log('📺 Remote stream received from:', fromUserId);
-      this.onRemoteStream?.(event.streams[0], fromUserId);
-    };
-
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        this.sendSignal(fromUserId, 'ice-candidate', event.candidate);
-      }
-    };
 
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
@@ -402,6 +409,59 @@ export class WebRTCSignalingManager {
     const pc = this.peerConnections.get(fromUserId);
     if (pc) {
       await pc.addIceCandidate(candidate);
+    }
+  }
+
+  private createPeerConnection(userId: string): RTCPeerConnection {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ]
+    });
+
+    // Handle remote stream
+    pc.ontrack = (event) => {
+      console.log('📺 Remote stream received from:', userId);
+      this.onRemoteStream?.(event.streams[0], userId);
+    };
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.sendSignal(userId, 'ice-candidate', event.candidate);
+      }
+    };
+
+    // Handle connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log(`🔗 Connection state with ${userId}:`, pc.connectionState);
+      
+      if (pc.connectionState === 'failed') {
+        this.handleConnectionFailure(userId);
+      }
+    };
+
+    return pc;
+  }
+
+  private async handleConnectionFailure(userId: string) {
+    const attempts = this.reconnectAttempts.get(userId) || 0;
+    
+    if (attempts < this.maxReconnectAttempts) {
+      console.log(`🔄 Attempting to reconnect to ${userId} (${attempts + 1}/${this.maxReconnectAttempts})`);
+      
+      this.reconnectAttempts.set(userId, attempts + 1);
+      
+      // Wait before reconnecting
+      setTimeout(() => {
+        this.createOffer(userId).catch(console.error);
+      }, 2000 * (attempts + 1)); // Exponential backoff
+    } else {
+      console.log(`❌ Max reconnection attempts reached for ${userId}`);
+      this.peerConnections.delete(userId);
+      this.reconnectAttempts.delete(userId);
     }
   }
 
