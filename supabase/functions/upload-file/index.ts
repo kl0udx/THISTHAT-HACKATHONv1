@@ -100,7 +100,17 @@ async function generateThumbnail(file: Uint8Array, mimeType: string): Promise<st
 
 async function ensureBucketExists(supabase: any): Promise<void> {
   try {
-    console.log('Attempting to create shared-files bucket...');
+    console.log('🪣 Checking if shared-files bucket exists...');
+    
+    // First, try to get the bucket to see if it exists
+    const { data: existingBucket, error: getBucketError } = await supabase.storage.getBucket('shared-files');
+    
+    if (existingBucket) {
+      console.log('🪣 Bucket already exists, continuing...');
+      return;
+    }
+
+    console.log('🪣 Creating shared-files bucket...');
     const { data, error } = await supabase.storage.createBucket('shared-files', {
       public: true,
       fileSizeLimit: 104857600, // 100MB
@@ -126,22 +136,22 @@ async function ensureBucketExists(supabase: any): Promise<void> {
     if (error) {
       // Check if the error is because the bucket already exists
       if (error.message && error.message.includes('already exists')) {
-        console.log('Bucket already exists, continuing...');
+        console.log('🪣 Bucket already exists, continuing...');
         return;
       }
       // Re-throw any other errors
       throw error;
     } else {
-      console.log('Bucket created successfully:', data);
+      console.log('🪣 Bucket created successfully:', data);
     }
   } catch (error) {
     // Check if the error is because the bucket already exists
     if (error.message && error.message.includes('already exists')) {
-      console.log('Bucket already exists, continuing...');
+      console.log('🪣 Bucket already exists, continuing...');
       return;
     }
     // Re-throw any other errors
-    console.error('Error ensuring bucket exists:', error);
+    console.error('🪣 Error ensuring bucket exists:', error);
     throw error;
   }
 }
@@ -155,6 +165,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    console.log('📤 Upload request received');
+    
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -176,7 +188,17 @@ Deno.serve(async (req: Request) => {
     const userId = formData.get('userId') as string;
     const transferType = (formData.get('transferType') as string) || 'server';
 
+    console.log('📤 Form data parsed:', {
+      fileName: file?.name,
+      fileSize: file?.size,
+      fileType: file?.type,
+      roomId,
+      userId,
+      transferType
+    });
+
     if (!file || !roomId || !userId) {
+      console.error('📤 Missing required fields');
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -186,6 +208,7 @@ Deno.serve(async (req: Request) => {
     // Validate file
     const validation = validateFile(file.name, file.size, file.type);
     if (!validation.isValid) {
+      console.error('📤 File validation failed:', validation.error);
       return new Response(JSON.stringify({ error: validation.error }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -201,6 +224,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (participantError || !participant) {
+      console.error('📤 User not found in room:', participantError);
       return new Response(JSON.stringify({ error: 'User not found in room' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -216,6 +240,8 @@ Deno.serve(async (req: Request) => {
       const safeFilename = generateSafeFilename(file.name);
       const fileName = `${roomId}/${safeFilename}`;
       
+      console.log('📤 Uploading to storage:', fileName);
+      
       // Convert File to ArrayBuffer for Deno compatibility
       const fileBuffer = await file.arrayBuffer();
       
@@ -227,16 +253,17 @@ Deno.serve(async (req: Request) => {
         });
 
       if (uploadError) {
-        console.error('Storage upload error:', uploadError);
+        console.error('📤 Storage upload error:', uploadError);
         return new Response(JSON.stringify({ 
           error: 'Failed to upload file to storage',
-          details: uploadError
+          details: uploadError.message
         }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
+      console.log('📤 Storage upload successful:', uploadData);
       storagePath = uploadData.path;
 
       // Get public URL
@@ -245,6 +272,7 @@ Deno.serve(async (req: Request) => {
         .getPublicUrl(fileName);
 
       downloadUrl = urlData.publicUrl;
+      console.log('📤 Public URL generated:', downloadUrl);
 
       // Generate thumbnail for images
       if (file.type.startsWith('image/')) {
@@ -253,6 +281,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Save file metadata to database
+    console.log('📤 Saving file metadata to database');
     const { data: fileRecord, error: dbError } = await supabase
       .from('shared_files')
       .insert({
@@ -275,20 +304,26 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (dbError) {
-      console.error('Database insert error:', dbError);
+      console.error('📤 Database insert error:', dbError);
       
       // Clean up uploaded file if database insert fails
       if (storagePath) {
+        console.log('📤 Cleaning up uploaded file due to database error');
         await supabase.storage
           .from('shared-files')
           .remove([storagePath]);
       }
       
-      return new Response(JSON.stringify({ error: 'Failed to save file metadata' }), {
+      return new Response(JSON.stringify({ 
+        error: 'Failed to save file metadata',
+        details: dbError.message
+      }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('📤 File upload completed successfully:', fileRecord.id);
 
     const response = {
       fileId: fileRecord.id,
@@ -313,8 +348,11 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (error) {
-    console.error('Unexpected error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    console.error('📤 Unexpected error in upload-file function:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Internal server error',
+      details: error.message
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

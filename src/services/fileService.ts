@@ -46,26 +46,54 @@ export interface FileUploadResponse {
 
 export class FileService {
   static async uploadFile(request: FileUploadRequest): Promise<FileUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', request.file);
-    formData.append('roomId', request.roomId);
-    formData.append('userId', request.userId);
-    formData.append('transferType', request.transferType || 'server');
+    try {
+      const formData = new FormData();
+      formData.append('file', request.file);
+      formData.append('roomId', request.roomId);
+      formData.append('userId', request.userId);
+      formData.append('transferType', request.transferType || 'server');
 
-    const response = await fetch(`${API_BASE}/upload-file`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-      body: formData,
-    });
+      console.log('📤 Uploading file:', {
+        name: request.file.name,
+        size: request.file.size,
+        type: request.file.type,
+        roomId: request.roomId,
+        userId: request.userId
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to upload file');
+      const response = await fetch(`${API_BASE}/upload-file`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: formData,
+      });
+
+      console.log('📤 Upload response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('📤 Upload error response:', errorText);
+        
+        let errorMessage = 'Failed to upload file';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use the text as error message
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      console.log('📤 Upload successful:', result);
+      return result;
+    } catch (error) {
+      console.error('📤 FileService upload error:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   static async getRoomFiles(roomId: string, limit = 50): Promise<SharedFile[]> {
