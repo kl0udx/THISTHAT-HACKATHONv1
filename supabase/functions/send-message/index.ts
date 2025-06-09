@@ -21,12 +21,12 @@ interface SendMessageRequest {
   };
 }
 
-// File validation constants (updated with higher limits)
+// File validation constants (updated with 500MB limits)
 const ALLOWED_FILE_TYPES = {
   image: {
     extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
     mimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
-    maxSize: 100 * 1024 * 1024, // 100MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   },
   document: {
     extensions: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.md', '.rtf'],
@@ -39,27 +39,27 @@ const ALLOWED_FILE_TYPES = {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'text/plain', 'text/markdown', 'application/rtf'
     ],
-    maxSize: 200 * 1024 * 1024, // 200MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   },
   archive: {
     extensions: ['.zip', '.rar', '.7z', '.tar', '.gz'],
     mimeTypes: ['application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/x-tar', 'application/gzip'],
-    maxSize: 200 * 1024 * 1024, // 200MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   },
   video: {
     extensions: ['.mp4', '.webm', '.avi', '.mov', '.wmv', '.flv', '.mkv'],
     mimeTypes: ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime', 'video/x-ms-wmv', 'video/x-flv', 'video/x-matroska'],
-    maxSize: 200 * 1024 * 1024, // 200MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   },
   audio: {
     extensions: ['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a'],
     mimeTypes: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/aac', 'audio/mp4'],
-    maxSize: 100 * 1024 * 1024, // 100MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   },
   code: {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.json', '.xml', '.yaml', '.yml', '.py', '.java', '.cpp', '.c', '.php'],
     mimeTypes: ['application/javascript', 'text/javascript', 'application/typescript', 'text/css', 'text/html', 'application/json', 'application/xml', 'text/xml'],
-    maxSize: 20 * 1024 * 1024, // 20MB
+    maxSize: 500 * 1024 * 1024, // 500MB
   }
 };
 
@@ -83,9 +83,9 @@ function validateFileData(fileData: any): { isValid: boolean; error?: string } {
     return { isValid: false, error: 'File type blocked for security reasons' };
   }
 
-  // Check file size (200MB absolute limit)
-  if (fileData.size > 200 * 1024 * 1024) {
-    return { isValid: false, error: 'File too large (max 200MB)' };
+  // Check file size (500MB absolute limit)
+  if (fileData.size > 500 * 1024 * 1024) {
+    return { isValid: false, error: 'File too large (max 500MB)' };
   }
 
   // Validate against allowed types

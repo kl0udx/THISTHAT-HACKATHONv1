@@ -9,7 +9,7 @@ export interface FileValidationResult {
 export type FileType = 'image' | 'document' | 'archive' | 'video' | 'audio' | 'code' | 'other';
 export type FileCategory = 'allowed' | 'blocked' | 'unknown';
 
-// Allowed file types with extensions and MIME types (updated with higher limits)
+// Allowed file types with extensions and MIME types (updated with 500MB limits)
 export const ALLOWED_FILE_TYPES = {
   // Images
   image: {
@@ -18,7 +18,7 @@ export const ALLOWED_FILE_TYPES = {
       'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
       'image/webp', 'image/svg+xml'
     ],
-    maxSize: 100 * 1024 * 1024, // 100MB for images
+    maxSize: 500 * 1024 * 1024, // 500MB for images
     icon: '🖼️'
   },
   
@@ -37,7 +37,7 @@ export const ALLOWED_FILE_TYPES = {
       'text/markdown',
       'application/rtf'
     ],
-    maxSize: 200 * 1024 * 1024, // 200MB for documents
+    maxSize: 500 * 1024 * 1024, // 500MB for documents
     icon: '📄'
   },
   
@@ -51,7 +51,7 @@ export const ALLOWED_FILE_TYPES = {
       'application/x-tar',
       'application/gzip'
     ],
-    maxSize: 200 * 1024 * 1024, // 200MB for archives
+    maxSize: 500 * 1024 * 1024, // 500MB for archives
     icon: '📦'
   },
   
@@ -62,7 +62,7 @@ export const ALLOWED_FILE_TYPES = {
       'video/mp4', 'video/webm', 'video/avi', 'video/quicktime',
       'video/x-ms-wmv', 'video/x-flv', 'video/x-matroska'
     ],
-    maxSize: 200 * 1024 * 1024, // 200MB for videos
+    maxSize: 500 * 1024 * 1024, // 500MB for videos
     icon: '🎥'
   },
   
@@ -73,7 +73,7 @@ export const ALLOWED_FILE_TYPES = {
       'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac',
       'audio/aac', 'audio/mp4'
     ],
-    maxSize: 100 * 1024 * 1024, // 100MB for audio
+    maxSize: 500 * 1024 * 1024, // 500MB for audio
     icon: '🎵'
   },
   
@@ -93,7 +93,7 @@ export const ALLOWED_FILE_TYPES = {
       'text/x-c++src', 'text/x-csrc',
       'application/x-php'
     ],
-    maxSize: 20 * 1024 * 1024, // 20MB for code files
+    maxSize: 500 * 1024 * 1024, // 500MB for code files
     icon: '💻'
   }
 };
@@ -171,11 +171,11 @@ export function validateFile(file: File): FileValidationResult {
     };
   }
   
-  // Check overall file size limit (200MB)
-  if (file.size > 200 * 1024 * 1024) {
+  // Check overall file size limit (500MB)
+  if (file.size > 500 * 1024 * 1024) {
     return {
       isValid: false,
-      error: 'File too large. Maximum file size is 200MB.',
+      error: 'File too large. Maximum file size is 500MB.',
       fileType,
       category: 'allowed'
     };
@@ -205,12 +205,12 @@ export function getFileIcon(filename: string, mimeType: string): string {
 
 export function getAllowedTypesText(): string {
   const categories = [
-    { name: 'Images', types: 'JPG, PNG, GIF, WebP, SVG (max 100MB)' },
-    { name: 'Documents', types: 'PDF, Word, Excel, PowerPoint, Text, Markdown (max 200MB)' },
-    { name: 'Archives', types: 'ZIP, RAR, 7Z (max 200MB)' },
-    { name: 'Videos', types: 'MP4, WebM, AVI, MOV (max 200MB)' },
-    { name: 'Audio', types: 'MP3, WAV, OGG, FLAC (max 100MB)' },
-    { name: 'Code', types: 'JS, CSS, HTML, JSON, XML, Python, Java (max 20MB)' }
+    { name: 'Images', types: 'JPG, PNG, GIF, WebP, SVG (max 500MB)' },
+    { name: 'Documents', types: 'PDF, Word, Excel, PowerPoint, Text, Markdown (max 500MB)' },
+    { name: 'Archives', types: 'ZIP, RAR, 7Z (max 500MB)' },
+    { name: 'Videos', types: 'MP4, WebM, AVI, MOV (max 500MB)' },
+    { name: 'Audio', types: 'MP3, WAV, OGG, FLAC (max 500MB)' },
+    { name: 'Code', types: 'JS, CSS, HTML, JSON, XML, Python, Java (max 500MB)' }
   ];
   
   return categories.map(cat => `${cat.name}: ${cat.types}`).join('\n');
