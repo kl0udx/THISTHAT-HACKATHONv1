@@ -88,7 +88,7 @@ function App() {
               <div className="bg-gradient-to-br from-purple-500 to-blue-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
                 <Users className="w-10 h-10 text-white" />
               </div>
-              <h1 className="text-4xl font-bold text-gray-900 mb-4">Room Manager</h1>
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">ThisThat</h1>
               <p className="text-lg text-gray-600 max-w-2xl">
                 Create or join collaborative rooms with anonymous users. Perfect for quick team sessions, 
                 workshops, or any group activity that needs real-time participation tracking.
